@@ -119,7 +119,7 @@ RUN uv pip install accelerate hf_transfer modelscope bitsandbytes timm boto3 run
 # Clean uv cache
 RUN uv clean
 
-# InfiniStore dependencies -> not needed with patched LMCache
+# InfiniStore dependencies -> not needed with patched LMCache below
 # RUN apt-get update && apt-get install -y --no-install-recommends \
 #     libuv1-dev \
 #     libflatbuffers-dev \
