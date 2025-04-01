@@ -119,10 +119,34 @@ RUN uv pip install accelerate hf_transfer modelscope bitsandbytes timm boto3 run
 # Clean uv cache
 RUN uv clean
 
-# Install LMCache
-RUN git clone https://github.com/LMCache/LMCache.git && \
+# InfiniStore dependencies -> not needed with patched LMCache
+# RUN apt-get update && apt-get install -y --no-install-recommends \
+#     libuv1-dev \
+#     libflatbuffers-dev \
+#     libspdlog-dev \
+#     libfmt-dev \
+#     ibverbs-utils \
+#     libibverbs-dev \
+#     libboost-dev \
+#     libboost-stacktrace-dev \
+#     git \
+#     curl \
+#     build-essential
+
+# RUN git clone https://github.com/bytedance/InfiniStore.git && \
+#     cd InfiniStore && git checkout 0.2.33 && \
+#     pip install -e .
+
+# LMCache dependencies
+RUN uv pip install -U aiofiles pyyaml redis nvtx safetensors transformers psutil aiohttp sortedcontainers prometheus_client msgspec
+RUN git clone https://github.com/LMCache/torchac_cuda.git && \
+    cd torchac_cuda && \
+    python setup.py install
+
+RUN git clone https://github.com/rajesh-s/LMCache.git && \
     cd LMCache && \
-    git checkout v0.1.4-alpha && \
+    sed -i 's/2\.5\.1/2.6.0/g' pyproject.toml setup.py && \
+    sed 's#numpy==1\.26\.4#numpy#g' pyproject.toml setup.py requirements.txt && \
     python setup.py install
 
 # Enable hf-transfer
@@ -130,3 +154,4 @@ ENV HF_HUB_ENABLE_HF_TRANSFER=1
 
 # API server entrypoint
 ENTRYPOINT ["vllm", "serve"]
+# CMD ["/bin/bash"]
