@@ -45,6 +45,7 @@ ENV PATH=${VIRTUAL_ENV}/bin:${PATH}
 ENV CUDA_HOME=/usr/local/cuda
 ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
 
+RUN uv pip install numpy==2.0.0
 # Install pytorch nightly
 RUN uv pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu126
 
