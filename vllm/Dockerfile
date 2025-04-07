@@ -152,7 +152,7 @@ RUN git clone https://github.com/rajesh-s/LMCache.git && \
 
 # Enable hf-transfer
 ENV HF_HUB_ENABLE_HF_TRANSFER=1
-
+RUN uv pip install numpy==2.0.0
 # API server entrypoint
 ENTRYPOINT ["vllm", "serve"]
-# CMD ["/bin/bash"]
+#CMD ["/bin/bash"]
