@@ -152,7 +152,15 @@ RUN git clone https://github.com/rajesh-s/LMCache.git && \
 
 # Enable hf-transfer
 ENV HF_HUB_ENABLE_HF_TRANSFER=1
-RUN uv pip install numpy==2.0.0
+RUN uv pip install numpy==2.0.0 datasets aiohttp
+
+# Install nsys for profiling
+ARG NSYS_URL=https://developer.nvidia.com/downloads/assets/tools/secure/nsight-systems/2025_2/
+ARG NSYS_PKG=nsight-systems-cli-2025.2.1_2025.2.1.130-1_arm64.deb
+
+RUN apt-get update && apt install -y wget libglib2.0-0
+RUN wget ${NSYS_URL}${NSYS_PKG} && dpkg -i $NSYS_PKG && rm $NSYS_PKG
+
 # API server entrypoint
 ENTRYPOINT ["vllm", "serve"]
 #CMD ["/bin/bash"]
