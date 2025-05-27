@@ -1,5 +1,5 @@
-ARG CUDA_VERSION=12.6.3
-ARG IMAGE_DISTRO=ubuntu24.04
+ARG CUDA_VERSION=12.4.1
+ARG IMAGE_DISTRO=ubuntu22.04
 ARG PYTHON_VERSION=3.12
 
 # ---------- Builder Base ----------
@@ -91,7 +91,7 @@ RUN cd flashinfer && \
     uv build --wheel --no-build-isolation -o /wheels
 
 FROM build-base AS build-vllm
-ARG VLLM_REF=v0.8.1
+ARG VLLM_REF=v0.8.4
 RUN git clone https://github.com/vllm-project/vllm.git
 RUN cd vllm && \
     git checkout ${VLLM_REF} && \
@@ -120,6 +120,9 @@ RUN uv pip install accelerate hf_transfer modelscope bitsandbytes timm boto3 run
 # Clean uv cache
 RUN uv clean
 
+# python3-config https://github.com/astral-sh/uv/issues/10263
+RUN export PATH="$(dirname $(realpath .venv/bin/python)):$PATH"
+
 # InfiniStore dependencies -> not needed with patched LMCache below
 # RUN apt-get update && apt-get install -y --no-install-recommends \
 #     libuv1-dev \
@@ -137,12 +140,24 @@ RUN uv clean
 # RUN git clone https://github.com/bytedance/InfiniStore.git && \
 #     cd InfiniStore && git checkout 0.2.33 && \
 #     pip install -e .
+# RUN apt update
+# RUN apt install -y cmake libuv1-dev libspdlog-dev libboost-dev libboost-all-dev # pybind11-dev python3-dev
+# RUN uv pip install pybind11
+# RUN git clone -b v1.12.0 https://github.com/google/flatbuffers.git && \
+#   cd flatbuffers && \
+#   cmake -B build -DFLATBUFFERS_BUILD_TESTS=OFF && \
+#   cmake --build build -j && \
+#   cmake --install build && cd ..
+# RUN git clone https://github.com/bytedance/InfiniStore
+# RUN sed -i 's|^INCLUDES = -I/usr/local/.*|INCLUDES = -I/root/.local/share/uv/python/cpython-3.12.10-linux-aarch64-gnu/include/python3.12|' InfiniStore/src/Makefile
+# RUN cd InfiniStore/src && make
+# RUN cd InfiniStore && pip install --no-deps --no-build-isolation -e .
 
-# LMCache dependencies
-RUN uv pip install -U aiofiles pyyaml redis nvtx safetensors transformers psutil aiohttp sortedcontainers prometheus_client msgspec
-RUN git clone https://github.com/LMCache/torchac_cuda.git && \
-    cd torchac_cuda && \
-    python setup.py install
+# # LMCache dependencies
+# RUN uv pip install -U aiofiles pyyaml redis nvtx safetensors transformers psutil aiohttp sortedcontainers prometheus_client msgspec
+# RUN git clone https://github.com/LMCache/torchac_cuda.git && \
+#     cd torchac_cuda && \
+#     python setup.py install
 
 RUN git clone https://github.com/rajesh-s/LMCache.git && \
     cd LMCache && \
@@ -160,7 +175,8 @@ ARG NSYS_PKG=nsight-systems-cli-2025.2.1_2025.2.1.130-1_arm64.deb
 
 RUN apt-get update && apt install -y wget libglib2.0-0
 RUN wget ${NSYS_URL}${NSYS_PKG} && dpkg -i $NSYS_PKG && rm $NSYS_PKG
+RUN apt install -y --no-install-recommends tmux cmake
 
 # API server entrypoint
 ENTRYPOINT ["vllm", "serve"]
-#CMD ["/bin/bash"]
+# CMD ["/bin/bash"]
