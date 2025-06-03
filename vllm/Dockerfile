@@ -1,5 +1,5 @@
-ARG CUDA_VERSION=12.4.1
-ARG IMAGE_DISTRO=ubuntu22.04
+ARG CUDA_VERSION=12.8.1
+ARG IMAGE_DISTRO=ubuntu24.04
 ARG PYTHON_VERSION=3.12
 
 # ---------- Builder Base ----------
@@ -20,7 +20,8 @@ RUN apt install -y --no-install-recommends \
         curl \
         git \
         libibverbs-dev \
-        zlib1g-dev
+        zlib1g-dev \
+        libnuma-dev
 
 # Clean apt cache
 RUN apt clean
@@ -47,7 +48,7 @@ ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
 
 RUN uv pip install numpy==2.0.0
 # Install pytorch nightly
-RUN uv pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu126
+RUN uv pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu128
 
 FROM base AS build-base
 RUN mkdir /wheels
@@ -57,8 +58,8 @@ RUN mkdir /wheels
 RUN uv pip install -U build cmake ninja pybind11 setuptools wheel
 
 FROM build-base AS build-triton
-ARG TRITON_REF=release/3.2.x
-ARG TRITON_BUILD_SUFFIX=+cu126
+ARG TRITON_REF=release/3.3.x
+ARG TRITON_BUILD_SUFFIX=+cu128
 ENV TRITON_WHEEL_VERSION_SUFFIX=${TRITON_BUILD_SUFFIX:-}
 RUN git clone https://github.com/triton-lang/triton.git
 RUN cd triton && \
@@ -68,8 +69,8 @@ RUN cd triton && \
     uv build python --wheel --no-build-isolation -o /wheels
 
 FROM build-base AS build-xformers
-ARG XFORMERS_REF=v0.0.29.post2
-ARG XFORMERS_BUILD_VERSION=0.0.29.post2+cu126
+ARG XFORMERS_REF=v0.0.30
+ARG XFORMERS_BUILD_VERSION=0.0.30+cu128
 ENV BUILD_VERSION=${XFORMERS_BUILD_VERSION:-${XFORMERS_REF#v}}
 RUN git clone  https://github.com/facebookresearch/xformers.git
 RUN cd xformers && \
@@ -78,20 +79,21 @@ RUN cd xformers && \
     git submodule update --init --recursive -j 8 && \
     uv build --wheel --no-build-isolation -o /wheels
 
-FROM build-base AS build-flashinfer
-ARG FLASHINFER_ENABLE_AOT=1
-ARG FLASHINFER_REF=v0.2.2.post1
-ARG FLASHINFER_BUILD_SUFFIX=cu126
-ENV FLASHINFER_LOCAL_VERSION=${FLASHINFER_BUILD_SUFFIX:-}
-RUN git clone https://github.com/flashinfer-ai/flashinfer.git
-RUN cd flashinfer && \
-    git checkout ${FLASHINFER_REF} && \
-    git submodule sync && \
-    git submodule update --init --recursive -j 8 && \
-    uv build --wheel --no-build-isolation -o /wheels
+# Currently not supported on CUDA 12.8
+# FROM build-base AS build-flashinfer
+# ARG FLASHINFER_ENABLE_AOT=1
+# ARG FLASHINFER_REF=v0.2.2.post1
+# ARG FLASHINFER_BUILD_SUFFIX=cu126
+# ENV FLASHINFER_LOCAL_VERSION=${FLASHINFER_BUILD_SUFFIX:-}
+# RUN git clone https://github.com/flashinfer-ai/flashinfer.git
+# RUN cd flashinfer && \
+#     git checkout ${FLASHINFER_REF} && \
+#     git submodule sync && \
+#     git submodule update --init --recursive -j 8 && \
+#     uv build --wheel --no-build-isolation -o /wheels
 
 FROM build-base AS build-vllm
-ARG VLLM_REF=v0.8.4
+ARG VLLM_REF=v0.9.0.1
 RUN git clone https://github.com/vllm-project/vllm.git
 RUN cd vllm && \
     git checkout ${VLLM_REF} && \
@@ -102,7 +104,7 @@ RUN cd vllm && \
 
 
 FROM base AS vllm-openai
-COPY --from=build-flashinfer /wheels/* wheels/
+# COPY --from=build-flashinfer /wheels/* wheels/
 COPY --from=build-triton /wheels/* wheels/
 COPY --from=build-vllm /wheels/* wheels/
 COPY --from=build-xformers /wheels/* wheels/
@@ -123,6 +125,8 @@ RUN uv clean
 # python3-config https://github.com/astral-sh/uv/issues/10263
 RUN export PATH="$(dirname $(realpath .venv/bin/python)):$PATH"
 
+
+# LMCache should be auto-integrated in v1
 # InfiniStore dependencies -> not needed with patched LMCache below
 # RUN apt-get update && apt-get install -y --no-install-recommends \
 #     libuv1-dev \
@@ -153,25 +157,26 @@ RUN export PATH="$(dirname $(realpath .venv/bin/python)):$PATH"
 # RUN cd InfiniStore/src && make
 # RUN cd InfiniStore && pip install --no-deps --no-build-isolation -e .
 
-# # LMCache dependencies
+# # # LMCache dependencies
 # RUN uv pip install -U aiofiles pyyaml redis nvtx safetensors transformers psutil aiohttp sortedcontainers prometheus_client msgspec
-# RUN git clone https://github.com/LMCache/torchac_cuda.git && \
-#     cd torchac_cuda && \
-#     python setup.py install
+# # RUN git clone https://github.com/LMCache/torchac_cuda.git && \
+# #     cd torchac_cuda && \
+# #     python setup.py install
 
-RUN git clone https://github.com/rajesh-s/LMCache.git && \
-    cd LMCache && \
-    sed -i 's/2\.5\.1/2.6.0/g' pyproject.toml setup.py && \
-    sed 's#numpy==1\.26\.4#numpy#g' pyproject.toml setup.py requirements.txt && \
-    python setup.py install
+# RUN git clone https://github.com/rajesh-s/LMCache.git && \
+#     cd LMCache && \
+#     sed -i 's/2\.5\.1/2.6.0/g' pyproject.toml setup.py && \
+#     sed 's#numpy==1\.26\.4#numpy#g' pyproject.toml setup.py requirements.txt && \
+#     python setup.py install
 
 # Enable hf-transfer
 ENV HF_HUB_ENABLE_HF_TRANSFER=1
-RUN uv pip install numpy==2.0.0 datasets aiohttp
+RUN uv pip install numpy datasets aiohttp 
+# ==2.0.0
 
 # Install nsys for profiling
-ARG NSYS_URL=https://developer.nvidia.com/downloads/assets/tools/secure/nsight-systems/2025_2/
-ARG NSYS_PKG=nsight-systems-cli-2025.2.1_2025.2.1.130-1_arm64.deb
+ARG NSYS_URL=https://developer.nvidia.com/downloads/assets/tools/secure/nsight-systems/2025_3/
+ARG NSYS_PKG=nsight-systems-cli-2025.3.1_2025.3.1.90-1_arm64.deb
 
 RUN apt-get update && apt install -y wget libglib2.0-0
 RUN wget ${NSYS_URL}${NSYS_PKG} && dpkg -i $NSYS_PKG && rm $NSYS_PKG
