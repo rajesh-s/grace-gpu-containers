@@ -147,5 +147,5 @@ RUN wget ${NSYS_URL}${NSYS_PKG} && dpkg -i $NSYS_PKG && rm $NSYS_PKG
 RUN apt install -y --no-install-recommends tmux cmake
 
 # API server entrypoint
-ENTRYPOINT ["vllm", "serve"]
-# CMD ["/bin/bash"]
+# ENTRYPOINT ["vllm", "serve"]
+CMD ["/bin/bash"]
