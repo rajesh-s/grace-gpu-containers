@@ -68,7 +68,7 @@ RUN cd triton && \
     git submodule update --init --recursive -j 8 && \
     uv build python --wheel --no-build-isolation -o /wheels
 
-RUN export MAX_JOBS=10
+RUN export MAX_JOBS=6
 FROM build-base AS build-xformers
 ARG XFORMERS_REF=v0.0.30
 ARG XFORMERS_BUILD_VERSION=0.0.30+cu128
@@ -101,7 +101,7 @@ RUN cd vllm && \
     git submodule sync && \
     git submodule update --init --recursive -j 8 && \
     uv pip install -r requirements/build.txt && \
-    uv build --wheel --no-build-isolation -o /wheels
+    MAX_JOBS=32 uv build --wheel --no-build-isolation -o /wheels
 
 
 FROM base AS vllm-openai
@@ -130,11 +130,9 @@ RUN export PATH="$(dirname $(realpath .venv/bin/python)):$PATH"
 RUN uv pip install -U build cmake ninja pybind11 setuptools==79.0.1 wheel
 
 # Clone and build LMCache wheel without Infinistore that is broken on aarch64
-RUN git clone https://github.com/rajesh-s/LMCache.git -b v0.3.0 && \
-    cd LMCache && \
-    uv pip install setuptools_scm && \
-    python -m build --wheel --no-isolation && \
-    cp dist/*.whl /workspace/
+# Copy the wheel from host to container
+COPY lmcache-0.3.1.dev1-cp312-cp312-linux_aarch64.whl /tmp/
+RUN uv pip install /tmp/lmcache-0.3.1.dev1-cp312-cp312-linux_aarch64.whl
 
 # Enable hf-transfer
 ENV HF_HUB_ENABLE_HF_TRANSFER=1
