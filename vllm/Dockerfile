@@ -48,7 +48,7 @@ ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
 
 RUN uv pip install numpy==2.0.0
 # Install pytorch nightly
-RUN uv pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu128
+RUN uv pip install torch==2.7.0+cu128 torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu128
 
 FROM base AS build-base
 RUN mkdir /wheels
@@ -68,6 +68,7 @@ RUN cd triton && \
     git submodule update --init --recursive -j 8 && \
     uv build python --wheel --no-build-isolation -o /wheels
 
+RUN export MAX_JOBS=10
 FROM build-base AS build-xformers
 ARG XFORMERS_REF=v0.0.30
 ARG XFORMERS_BUILD_VERSION=0.0.30+cu128
@@ -125,54 +126,19 @@ RUN uv clean
 # python3-config https://github.com/astral-sh/uv/issues/10263
 RUN export PATH="$(dirname $(realpath .venv/bin/python)):$PATH"
 
+# Install build tools and dependencies
+RUN uv pip install -U build cmake ninja pybind11 setuptools==79.0.1 wheel
 
-# LMCache should be auto-integrated in v1
-# InfiniStore dependencies -> not needed with patched LMCache below
-# RUN apt-get update && apt-get install -y --no-install-recommends \
-#     libuv1-dev \
-#     libflatbuffers-dev \
-#     libspdlog-dev \
-#     libfmt-dev \
-#     ibverbs-utils \
-#     libibverbs-dev \
-#     libboost-dev \
-#     libboost-stacktrace-dev \
-#     git \
-#     curl \
-#     build-essential
-
-# RUN git clone https://github.com/bytedance/InfiniStore.git && \
-#     cd InfiniStore && git checkout 0.2.33 && \
-#     pip install -e .
-# RUN apt update
-# RUN apt install -y cmake libuv1-dev libspdlog-dev libboost-dev libboost-all-dev # pybind11-dev python3-dev
-# RUN uv pip install pybind11
-# RUN git clone -b v1.12.0 https://github.com/google/flatbuffers.git && \
-#   cd flatbuffers && \
-#   cmake -B build -DFLATBUFFERS_BUILD_TESTS=OFF && \
-#   cmake --build build -j && \
-#   cmake --install build && cd ..
-# RUN git clone https://github.com/bytedance/InfiniStore
-# RUN sed -i 's|^INCLUDES = -I/usr/local/.*|INCLUDES = -I/root/.local/share/uv/python/cpython-3.12.10-linux-aarch64-gnu/include/python3.12|' InfiniStore/src/Makefile
-# RUN cd InfiniStore/src && make
-# RUN cd InfiniStore && pip install --no-deps --no-build-isolation -e .
-
-# # # LMCache dependencies
-# RUN uv pip install -U aiofiles pyyaml redis nvtx safetensors transformers psutil aiohttp sortedcontainers prometheus_client msgspec
-# # RUN git clone https://github.com/LMCache/torchac_cuda.git && \
-# #     cd torchac_cuda && \
-# #     python setup.py install
-
-# RUN git clone https://github.com/rajesh-s/LMCache.git && \
-#     cd LMCache && \
-#     sed -i 's/2\.5\.1/2.6.0/g' pyproject.toml setup.py && \
-#     sed 's#numpy==1\.26\.4#numpy#g' pyproject.toml setup.py requirements.txt && \
-#     python setup.py install
+# Clone and build LMCache wheel without Infinistore that is broken on aarch64
+RUN git clone https://github.com/rajesh-s/LMCache.git -b v0.3.0 && \
+    cd LMCache && \
+    uv pip install setuptools_scm && \
+    python -m build --wheel --no-isolation && \
+    cp dist/*.whl /workspace/
 
 # Enable hf-transfer
 ENV HF_HUB_ENABLE_HF_TRANSFER=1
-RUN uv pip install numpy datasets aiohttp 
-# ==2.0.0
+RUN uv pip install datasets aiohttp
 
 # Install nsys for profiling
 ARG NSYS_URL=https://developer.nvidia.com/downloads/assets/tools/secure/nsight-systems/2025_3/
