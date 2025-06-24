@@ -94,7 +94,7 @@ RUN cd xformers && \
 #     uv build --wheel --no-build-isolation -o /wheels
 
 FROM build-base AS build-vllm
-ARG VLLM_REF=v0.9.0.1
+ARG VLLM_REF=v0.9.1
 RUN git clone https://github.com/vllm-project/vllm.git
 RUN cd vllm && \
     git checkout ${VLLM_REF} && \
