@@ -9,6 +9,7 @@ FROM nvcr.io/nvidia/cuda:${CUDA_VERSION}-devel-${IMAGE_DISTRO} AS base
 # 'a' suffix is not forward compatible but enables all optimizations
 ARG TORCH_CUDA_ARCH_LIST="9.0a"
 ENV TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST}
+ENV UV_TORCH_BACKEND=cu128
 ARG VLLM_FA_CMAKE_GPU_ARCHES="90a-real"
 ENV VLLM_FA_CMAKE_GPU_ARCHES=${VLLM_FA_CMAKE_GPU_ARCHES}
 
@@ -46,9 +47,15 @@ ENV PATH=${VIRTUAL_ENV}/bin:${PATH}
 ENV CUDA_HOME=/usr/local/cuda
 ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
 
+RUN apt-get update && apt install -y wget
+
 RUN uv pip install numpy==2.0.0
 # Install pytorch nightly
-RUN uv pip install torch==2.7.0+cu128 torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu128
+RUN uv pip install torch==2.7.0+cu128 torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu128 --torch-backend=cu128
+# RUN wget https://download.pytorch.org/whl/nightly/cu128/torch-2.7.0.dev20250310%2Bcu128-cp312-cp312-linux_aarch64.whl -O torch-2.7.0.dev20250310+cu128-cp312-cp312-linux_aarch64.whl
+
+# Install from the wheel
+# RUN uv pip install ./torch-2.7.0.dev20250310+cu128-cp312-cp312-linux_aarch64.whl
 
 FROM base AS build-base
 RUN mkdir /wheels
@@ -100,6 +107,7 @@ RUN cd vllm && \
     git checkout ${VLLM_REF} && \
     git submodule sync && \
     git submodule update --init --recursive -j 8 && \
+    python use_existing_torch.py && \
     uv pip install -r requirements/build.txt && \
     MAX_JOBS=32 uv build --wheel --no-build-isolation -o /wheels
 
@@ -132,7 +140,7 @@ RUN uv pip install -U build cmake ninja pybind11 setuptools==79.0.1 wheel
 # Clone and build LMCache wheel without Infinistore that is broken on aarch64
 # Copy the wheel from host to container
 COPY lmcache-0.3.1.dev1-cp312-cp312-linux_aarch64.whl /tmp/
-RUN uv pip install /tmp/lmcache-0.3.1.dev1-cp312-cp312-linux_aarch64.whl
+RUN uv pip install /tmp/lmcache-0.3.1.dev1-cp312-cp312-linux_aarch64.whl --no-deps
 
 # Enable hf-transfer
 ENV HF_HUB_ENABLE_HF_TRANSFER=1
@@ -146,6 +154,13 @@ RUN apt-get update && apt install -y wget libglib2.0-0
 RUN wget ${NSYS_URL}${NSYS_PKG} && dpkg -i $NSYS_PKG && rm $NSYS_PKG
 RUN apt install -y --no-install-recommends tmux cmake
 
+# Install required build tool
+RUN uv pip install ninja
+
+RUN git clone https://github.com/flashinfer-ai/flashinfer.git --recursive && \
+    cd flashinfer && \
+    uv pip install ninja && \
+    uv pip install --no-build-isolation --verbose .
 # API server entrypoint
 # ENTRYPOINT ["vllm", "serve"]
 CMD ["/bin/bash"]
