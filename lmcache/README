@@ -1,0 +1,5 @@
+sudo docker build -t lmcache .
+sudo docker run -it --rm lmcache /bin/bash
+
+sudo docker ps
+sudo docker cp e1a106fdc1d6:/workspace/lmcache-0.3.3-cp312-cp312-linux_aarch64.whl . 

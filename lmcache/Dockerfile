@@ -46,11 +46,11 @@ FROM base AS build-base
 # Install build tools and dependencies
 RUN uv pip install -U build cmake ninja pybind11 setuptools==79.0.1 wheel
 
-# Clone and build LMCache wheel
-RUN git clone https://github.com/rajesh-s/LMCache.git -b v0.3.0 && \
+RUN echo "Hello"
+# Clone the repo, apply the patch, and build
+RUN git clone https://github.com/LMCache/LMCache.git -b v0.3.3 && \
     cd LMCache && \
     uv pip install setuptools_scm && \
     python -m build --wheel --no-isolation && \
     cp dist/*.whl /workspace/
-
 CMD ["/bin/bash"]

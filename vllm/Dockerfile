@@ -51,8 +51,7 @@ RUN apt-get update && apt install -y wget
 
 RUN uv pip install numpy==2.0.0
 # Install pytorch nightly
-RUN uv pip install torch==2.7.0+cu128 torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu128 --torch-backend=cu128
-# RUN wget https://download.pytorch.org/whl/nightly/cu128/torch-2.7.0.dev20250310%2Bcu128-cp312-cp312-linux_aarch64.whl -O torch-2.7.0.dev20250310+cu128-cp312-cp312-linux_aarch64.whl
+RUN uv pip install torch==2.7.1+cu128 torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu128 --torch-backend=cu128
 
 # Install from the wheel
 # RUN uv pip install ./torch-2.7.0.dev20250310+cu128-cp312-cp312-linux_aarch64.whl
@@ -100,8 +99,14 @@ RUN cd xformers && \
 #     git submodule update --init --recursive -j 8 && \
 #     uv build --wheel --no-build-isolation -o /wheels
 
+RUN git clone https://github.com/flashinfer-ai/flashinfer.git --recursive && \
+    cd flashinfer && git checkout v0.2.8rc1 && \
+    uv pip install ninja && \
+    uv pip install --no-build-isolation --verbose .
+
+
 FROM build-base AS build-vllm
-ARG VLLM_REF=v0.9.1
+ARG VLLM_REF=v0.10.0
 RUN git clone https://github.com/vllm-project/vllm.git
 RUN cd vllm && \
     git checkout ${VLLM_REF} && \
@@ -109,7 +114,7 @@ RUN cd vllm && \
     git submodule update --init --recursive -j 8 && \
     python use_existing_torch.py && \
     uv pip install -r requirements/build.txt && \
-    MAX_JOBS=32 uv build --wheel --no-build-isolation -o /wheels
+    MAX_JOBS=16 uv build --wheel --no-build-isolation -o /wheels
 
 
 FROM base AS vllm-openai
@@ -139,8 +144,8 @@ RUN uv pip install -U build cmake ninja pybind11 setuptools==79.0.1 wheel
 
 # Clone and build LMCache wheel without Infinistore that is broken on aarch64
 # Copy the wheel from host to container
-COPY lmcache-0.3.1.dev1-cp312-cp312-linux_aarch64.whl /tmp/
-RUN uv pip install /tmp/lmcache-0.3.1.dev1-cp312-cp312-linux_aarch64.whl --no-deps
+COPY lmcache-0.3.3-cp312-cp312-linux_aarch64.whl /tmp/
+RUN uv pip install /tmp/lmcache-0.3.3-cp312-cp312-linux_aarch64.whl --no-deps
 
 # Enable hf-transfer
 ENV HF_HUB_ENABLE_HF_TRANSFER=1
@@ -157,10 +162,7 @@ RUN apt install -y --no-install-recommends tmux cmake
 # Install required build tool
 RUN uv pip install ninja
 
-RUN git clone https://github.com/flashinfer-ai/flashinfer.git --recursive && \
-    cd flashinfer && \
-    uv pip install ninja && \
-    uv pip install --no-build-isolation --verbose .
+
 # API server entrypoint
 # ENTRYPOINT ["vllm", "serve"]
 CMD ["/bin/bash"]
