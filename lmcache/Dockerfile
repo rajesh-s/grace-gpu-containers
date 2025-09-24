@@ -1,4 +1,4 @@
-ARG CUDA_VERSION=12.8.1
+ARG CUDA_VERSION=12.9.0
 ARG IMAGE_DISTRO=ubuntu24.04
 ARG PYTHON_VERSION=3.12
 
@@ -39,14 +39,13 @@ ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
 
 # Install Python deps in venv
 RUN uv pip install numpy==2.0.0
-RUN uv pip install torch==2.7.0 torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu128
+RUN uv pip install torch==2.8.0 torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu129
 
 FROM base AS build-base
 
 # Install build tools and dependencies
 RUN uv pip install -U build cmake ninja pybind11 setuptools==79.0.1 wheel
 
-RUN echo "Hello"
 # Clone the repo, apply the patch, and build
 RUN git clone https://github.com/LMCache/LMCache.git -b v0.3.3 && \
     cd LMCache && \

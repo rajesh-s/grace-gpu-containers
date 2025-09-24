@@ -1,4 +1,4 @@
-ARG CUDA_VERSION=12.8.1
+ARG CUDA_VERSION=12.9.0
 ARG IMAGE_DISTRO=ubuntu24.04
 ARG PYTHON_VERSION=3.12
 
@@ -51,10 +51,7 @@ RUN apt-get update && apt install -y wget
 
 RUN uv pip install numpy==2.0.0
 # Install pytorch nightly
-RUN uv pip install torch==2.7.1+cu128 torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu128 --torch-backend=cu128
-
-# Install from the wheel
-# RUN uv pip install ./torch-2.7.0.dev20250310+cu128-cp312-cp312-linux_aarch64.whl
+RUN uv pip install torch==2.8.0+cu129 torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu129 --torch-backend=cu129
 
 FROM base AS build-base
 RUN mkdir /wheels
@@ -64,20 +61,20 @@ RUN mkdir /wheels
 RUN uv pip install -U build cmake ninja pybind11 setuptools wheel
 
 FROM build-base AS build-triton
-ARG TRITON_REF=release/3.3.x
-ARG TRITON_BUILD_SUFFIX=+cu128
+ARG TRITON_REF=release/3.4.x
+ARG TRITON_BUILD_SUFFIX=+cu129
 ENV TRITON_WHEEL_VERSION_SUFFIX=${TRITON_BUILD_SUFFIX:-}
 RUN git clone https://github.com/triton-lang/triton.git
 RUN cd triton && \
     git checkout ${TRITON_REF} && \
     git submodule sync && \
     git submodule update --init --recursive -j 8 && \
-    uv build python --wheel --no-build-isolation -o /wheels
+    uv build --wheel --no-build-isolation -o /wheels
 
 RUN export MAX_JOBS=6
 FROM build-base AS build-xformers
-ARG XFORMERS_REF=v0.0.30
-ARG XFORMERS_BUILD_VERSION=0.0.30+cu128
+ARG XFORMERS_REF=v0.0.32
+ARG XFORMERS_BUILD_VERSION=0.0.30+cu129
 ENV BUILD_VERSION=${XFORMERS_BUILD_VERSION:-${XFORMERS_REF#v}}
 RUN git clone  https://github.com/facebookresearch/xformers.git
 RUN cd xformers && \
@@ -87,26 +84,28 @@ RUN cd xformers && \
     uv build --wheel --no-build-isolation -o /wheels
 
 # Currently not supported on CUDA 12.8
-# FROM build-base AS build-flashinfer
-# ARG FLASHINFER_ENABLE_AOT=1
-# ARG FLASHINFER_REF=v0.2.2.post1
-# ARG FLASHINFER_BUILD_SUFFIX=cu126
-# ENV FLASHINFER_LOCAL_VERSION=${FLASHINFER_BUILD_SUFFIX:-}
-# RUN git clone https://github.com/flashinfer-ai/flashinfer.git
-# RUN cd flashinfer && \
-#     git checkout ${FLASHINFER_REF} && \
-#     git submodule sync && \
-#     git submodule update --init --recursive -j 8 && \
-#     uv build --wheel --no-build-isolation -o /wheels
+FROM build-base AS build-flashinfer
+ARG FLASHINFER_ENABLE_AOT=1
+ARG FLASHINFER_REF=v0.3.1
+ARG FLASHINFER_BUILD_SUFFIX=cu129
+ENV FLASHINFER_LOCAL_VERSION=${FLASHINFER_BUILD_SUFFIX:-}
+RUN git clone https://github.com/flashinfer-ai/flashinfer.git
+RUN cd flashinfer && \
+    git checkout ${FLASHINFER_REF} && \
+    git submodule sync && \
+    git submodule update --init --recursive -j 8 && \
+    uv build --wheel --no-build-isolation -o /wheels
 
-RUN git clone https://github.com/flashinfer-ai/flashinfer.git --recursive && \
-    cd flashinfer && git checkout v0.2.8rc1 && \
-    uv pip install ninja && \
-    uv pip install --no-build-isolation --verbose .
-
+FROM build-base AS build-lmcache
+ARG LMCACHE_REF=v0.3.3
+RUN git clone https://github.com/LMCache/LMCache.git -b ${LMCACHE_REF} && \
+    cd LMCache && \
+    uv pip install setuptools_scm && \
+    python -m build --wheel --no-isolation && \
+    cp dist/*.whl /wheels/
 
 FROM build-base AS build-vllm
-ARG VLLM_REF=v0.10.0
+ARG VLLM_REF=v0.10.2
 RUN git clone https://github.com/vllm-project/vllm.git
 RUN cd vllm && \
     git checkout ${VLLM_REF} && \
@@ -116,14 +115,36 @@ RUN cd vllm && \
     uv pip install -r requirements/build.txt && \
     MAX_JOBS=16 uv build --wheel --no-build-isolation -o /wheels
 
+# Build infinistore after vllm to avoid cache invalidation
+FROM build-base AS build-infinistore
+# Install additional dependencies needed for building infinistore on aarch64
+RUN apt update && apt install -y cmake pybind11-dev python3-dev libuv1-dev libspdlog-dev libboost-dev libboost-all-dev meson
+
+# Build flatbuffers from source with proper CMake version
+RUN git clone -b v1.12.0 https://github.com/google/flatbuffers.git && \
+  cd flatbuffers && \
+  cmake -B build -DFLATBUFFERS_BUILD_TESTS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5 && \
+  cmake --build build -j && \
+  cmake --install build
+
+# Build InfiniStore from source as a Python package
+RUN git clone https://github.com/bytedance/InfiniStore && \
+    cd InfiniStore && \
+    uv pip install meson && \
+    uv pip install --no-deps --no-build-isolation -e . && \
+    uv pip uninstall infinistore && \
+    python -m build --wheel --no-isolation && \
+    cp dist/*.whl /wheels/
 
 FROM base AS vllm-openai
 # COPY --from=build-flashinfer /wheels/* wheels/
 COPY --from=build-triton /wheels/* wheels/
 COPY --from=build-vllm /wheels/* wheels/
 COPY --from=build-xformers /wheels/* wheels/
+COPY --from=build-lmcache /wheels/* wheels/
+COPY --from=build-infinistore /wheels/* wheels/
 
-# Install and cleanup wheels
+# Install wheels (infinistore is now built as a wheel)
 RUN uv pip install wheels/*
 RUN rm -r wheels
 
@@ -142,26 +163,16 @@ RUN export PATH="$(dirname $(realpath .venv/bin/python)):$PATH"
 # Install build tools and dependencies
 RUN uv pip install -U build cmake ninja pybind11 setuptools==79.0.1 wheel
 
-# Clone and build LMCache wheel without Infinistore that is broken on aarch64
-# Copy the wheel from host to container
-COPY lmcache-0.3.3-cp312-cp312-linux_aarch64.whl /tmp/
-RUN uv pip install /tmp/lmcache-0.3.3-cp312-cp312-linux_aarch64.whl --no-deps
-
 # Enable hf-transfer
 ENV HF_HUB_ENABLE_HF_TRANSFER=1
 RUN uv pip install datasets aiohttp
 
 # Install nsys for profiling
-ARG NSYS_URL=https://developer.nvidia.com/downloads/assets/tools/secure/nsight-systems/2025_3/
-ARG NSYS_PKG=nsight-systems-cli-2025.3.1_2025.3.1.90-1_arm64.deb
-
+ARG NSYS_URL=https://developer.nvidia.com/downloads/assets/tools/secure/nsight-systems/2025_5/
+ARG NSYS_PKG=nsight-systems-cli-2025.5.1_2025.5.1.121-1_arm64.deb
 RUN apt-get update && apt install -y wget libglib2.0-0
 RUN wget ${NSYS_URL}${NSYS_PKG} && dpkg -i $NSYS_PKG && rm $NSYS_PKG
 RUN apt install -y --no-install-recommends tmux cmake
-
-# Install required build tool
-RUN uv pip install ninja
-
 
 # API server entrypoint
 # ENTRYPOINT ["vllm", "serve"]
