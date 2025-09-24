@@ -174,6 +174,9 @@ RUN apt-get update && apt install -y wget libglib2.0-0
 RUN wget ${NSYS_URL}${NSYS_PKG} && dpkg -i $NSYS_PKG && rm $NSYS_PKG
 RUN apt install -y --no-install-recommends tmux cmake
 
+# Deprecated cleanup
+RUN uv pip uninstall pynvml && uv pip install nvidia-ml-py
+
 # API server entrypoint
 # ENTRYPOINT ["vllm", "serve"]
 CMD ["/bin/bash"]
