@@ -6,7 +6,9 @@ This repository provides a Dockerfile to build a container with vLLM and all its
 
 If you prefer not to build the image yourself, you can pull the ready-to-use image directly from Docker Hub:
 
-`docker pull rajesh550/gh200-vllm:0.10.2`
+```bash
+docker run --rm -it --gpus all -v "$PWD":"$PWD" -w "$PWD" rajesh550/gh200-vllm:0.11.0 bash
+```
 
 👉 [Docker Hub](https://hub.docker.com/repository/docker/rajesh550/gh200-vllm/general)
 

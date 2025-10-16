@@ -9,7 +9,7 @@ FROM nvcr.io/nvidia/cuda:${CUDA_VERSION}-devel-${IMAGE_DISTRO} AS base
 # 'a' suffix is not forward compatible but enables all optimizations
 ARG TORCH_CUDA_ARCH_LIST="9.0a"
 ENV TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST}
-ENV UV_TORCH_BACKEND=cu128
+ENV UV_TORCH_BACKEND=cu129
 ARG VLLM_FA_CMAKE_GPU_ARCHES="90a-real"
 ENV VLLM_FA_CMAKE_GPU_ARCHES=${VLLM_FA_CMAKE_GPU_ARCHES}
 
@@ -73,7 +73,7 @@ RUN cd triton && \
 
 RUN export MAX_JOBS=6
 FROM build-base AS build-xformers
-ARG XFORMERS_REF=v0.0.32
+ARG XFORMERS_REF=v0.0.32.post2
 ARG XFORMERS_BUILD_VERSION=0.0.30+cu129
 ENV BUILD_VERSION=${XFORMERS_BUILD_VERSION:-${XFORMERS_REF#v}}
 RUN git clone  https://github.com/facebookresearch/xformers.git
@@ -86,7 +86,7 @@ RUN cd xformers && \
 # Currently not supported on CUDA 12.8
 FROM build-base AS build-flashinfer
 ARG FLASHINFER_ENABLE_AOT=1
-ARG FLASHINFER_REF=v0.3.1
+ARG FLASHINFER_REF=v0.4.1
 ARG FLASHINFER_BUILD_SUFFIX=cu129
 ENV FLASHINFER_LOCAL_VERSION=${FLASHINFER_BUILD_SUFFIX:-}
 RUN git clone https://github.com/flashinfer-ai/flashinfer.git
@@ -97,7 +97,7 @@ RUN cd flashinfer && \
     uv build --wheel --no-build-isolation -o /wheels
 
 FROM build-base AS build-lmcache
-ARG LMCACHE_REF=v0.3.3
+ARG LMCACHE_REF=v0.3.7
 RUN git clone https://github.com/LMCache/LMCache.git -b ${LMCACHE_REF} && \
     cd LMCache && \
     uv pip install setuptools_scm && \
@@ -105,7 +105,7 @@ RUN git clone https://github.com/LMCache/LMCache.git -b ${LMCACHE_REF} && \
     cp dist/*.whl /wheels/
 
 FROM build-base AS build-vllm
-ARG VLLM_REF=v0.10.2
+ARG VLLM_REF=v0.11.0
 RUN git clone https://github.com/vllm-project/vllm.git
 RUN cd vllm && \
     git checkout ${VLLM_REF} && \
@@ -137,7 +137,7 @@ RUN git clone https://github.com/bytedance/InfiniStore && \
     cp dist/*.whl /wheels/
 
 FROM base AS vllm-openai
-# COPY --from=build-flashinfer /wheels/* wheels/
+COPY --from=build-flashinfer /wheels/* wheels/
 COPY --from=build-triton /wheels/* wheels/
 COPY --from=build-vllm /wheels/* wheels/
 COPY --from=build-xformers /wheels/* wheels/
