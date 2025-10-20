@@ -1,4 +1,4 @@
-ARG CUDA_VERSION=12.9.0
+ARG CUDA_VERSION=13.0.1
 ARG IMAGE_DISTRO=ubuntu24.04
 ARG PYTHON_VERSION=3.12
 
@@ -9,7 +9,7 @@ FROM nvcr.io/nvidia/cuda:${CUDA_VERSION}-devel-${IMAGE_DISTRO} AS base
 # 'a' suffix is not forward compatible but enables all optimizations
 ARG TORCH_CUDA_ARCH_LIST="9.0a"
 ENV TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST}
-ENV UV_TORCH_BACKEND=cu129
+# ENV UV_TORCH_BACKEND=cu130
 ARG VLLM_FA_CMAKE_GPU_ARCHES="90a-real"
 ENV VLLM_FA_CMAKE_GPU_ARCHES=${VLLM_FA_CMAKE_GPU_ARCHES}
 
@@ -46,12 +46,15 @@ ENV VIRTUAL_ENV=/workspace/.venv
 ENV PATH=${VIRTUAL_ENV}/bin:${PATH}
 ENV CUDA_HOME=/usr/local/cuda
 ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
+ENV CPLUS_INCLUDE_PATH=${CUDA_HOME}/include/cccl
+ENV C_INCLUDE_PATH=${CUDA_HOME}/include/cccl
+ENV PATH=${CUDA_HOME}/cuda/bin:${PATH}
 
 RUN apt-get update && apt install -y wget
 
 RUN uv pip install numpy==2.0.0
 # Install pytorch nightly
-RUN uv pip install torch==2.8.0+cu129 torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu129 --torch-backend=cu129
+RUN uv pip install torch==2.9.0+cu130 torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu130
 
 FROM base AS build-base
 RUN mkdir /wheels
@@ -62,7 +65,7 @@ RUN uv pip install -U build cmake ninja pybind11 setuptools wheel
 
 FROM build-base AS build-triton
 ARG TRITON_REF=release/3.4.x
-ARG TRITON_BUILD_SUFFIX=+cu129
+ARG TRITON_BUILD_SUFFIX=+cu130
 ENV TRITON_WHEEL_VERSION_SUFFIX=${TRITON_BUILD_SUFFIX:-}
 RUN git clone https://github.com/triton-lang/triton.git
 RUN cd triton && \
@@ -71,23 +74,23 @@ RUN cd triton && \
     git submodule update --init --recursive -j 8 && \
     uv build --wheel --no-build-isolation -o /wheels
 
-RUN export MAX_JOBS=6
 FROM build-base AS build-xformers
-ARG XFORMERS_REF=v0.0.32.post2
-ARG XFORMERS_BUILD_VERSION=0.0.30+cu129
-ENV BUILD_VERSION=${XFORMERS_BUILD_VERSION:-${XFORMERS_REF#v}}
-RUN git clone  https://github.com/facebookresearch/xformers.git
+#ARG XFORMERS_REF=v0.0.32.post2
+#ARG XFORMERS_BUILD_VERSION=0.0.30+cu130
+#ENV BUILD_VERSION=${XFORMERS_BUILD_VERSION:-${XFORMERS_REF#v}}
+RUN git clone https://github.com/johnnynunez/xformers.git
+# https://github.com/facebookresearch/xformers.git
 RUN cd xformers && \
-    git checkout ${XFORMERS_REF} && \
+#    git checkout ${XFORMERS_REF} && \
     git submodule sync && \
     git submodule update --init --recursive -j 8 && \
-    uv build --wheel --no-build-isolation -o /wheels
+    MAX_JOBS=6 uv build --wheel --no-build-isolation -o /wheels
 
 # Currently not supported on CUDA 12.8
 FROM build-base AS build-flashinfer
 ARG FLASHINFER_ENABLE_AOT=1
 ARG FLASHINFER_REF=v0.4.1
-ARG FLASHINFER_BUILD_SUFFIX=cu129
+ARG FLASHINFER_BUILD_SUFFIX=cu130
 ENV FLASHINFER_LOCAL_VERSION=${FLASHINFER_BUILD_SUFFIX:-}
 RUN git clone https://github.com/flashinfer-ai/flashinfer.git
 RUN cd flashinfer && \
@@ -100,20 +103,51 @@ FROM build-base AS build-lmcache
 ARG LMCACHE_REF=v0.3.7
 RUN git clone https://github.com/LMCache/LMCache.git -b ${LMCACHE_REF} && \
     cd LMCache && \
+# PyTorch version is dated in LMCache
+    sed -i '/torch/d' pyproject.toml && \
     uv pip install setuptools_scm && \
     python -m build --wheel --no-isolation && \
     cp dist/*.whl /wheels/
 
+# Build Flash Attention with the proven working approach
+FROM build-base AS build-flash-attention
+RUN apt-get update && apt-get install -y build-essential cmake gcc && \
+    git clone --depth=1 https://github.com/Dao-AILab/flash-attention flash-attention && \
+    cd flash-attention && \
+    mkdir wheels && \
+    export MAX_JOBS=8 && \
+    export NVCC_THREADS=1 && \
+    export CMAKE_BUILD_PARALLEL_LEVEL=$MAX_JOBS && \
+    MAX_JOBS=$MAX_JOBS \
+    CMAKE_BUILD_PARALLEL_LEVEL=$MAX_JOBS \
+    TORCH_CUDA_ARCH_LIST="9.0a" \
+    FLASH_ATTENTION_FORCE_BUILD="TRUE" \
+    FLASH_ATTENTION_FORCE_CXX11_ABI="FALSE" \
+    FLASH_ATTENTION_SKIP_CUDA_BUILD="FALSE" \
+    pip3 wheel . -v --no-deps -w ./wheels/ && \
+    cp wheels/*.whl /wheels/
+
 FROM build-base AS build-vllm
 ARG VLLM_REF=v0.11.0
+# Install ccache for faster compilation
+RUN apt-get update && apt-get install -y ccache
+# Copy Flash Attention wheel to use during vLLM build
+COPY --from=build-flash-attention /wheels/* /tmp/fa-wheels/
 RUN git clone https://github.com/vllm-project/vllm.git
+RUN uv pip install /tmp/fa-wheels/flash_attn*.whl
 RUN cd vllm && \
     git checkout ${VLLM_REF} && \
     git submodule sync && \
     git submodule update --init --recursive -j 8 && \
+    export MAX_JOBS=16 && \
+    export CMAKE_BUILD_PARALLEL_LEVEL=$MAX_JOBS && \
     python use_existing_torch.py && \
-    uv pip install -r requirements/build.txt && \
-    MAX_JOBS=16 uv build --wheel --no-build-isolation -o /wheels
+    pip install -r requirements/build.txt && \
+    MAX_JOBS=$MAX_JOBS \
+    CMAKE_BUILD_PARALLEL_LEVEL=$MAX_JOBS \
+    TORCH_CUDA_ARCH_LIST="9.0a" \
+    FLASH_ATTENTION_FORCE_CXX11_ABI="FALSE" \
+    pip install -e . --no-build-isolation
 
 # Build infinistore after vllm to avoid cache invalidation
 FROM build-base AS build-infinistore
@@ -156,9 +190,6 @@ RUN uv pip install accelerate hf_transfer modelscope bitsandbytes timm boto3 run
 
 # Clean uv cache
 RUN uv clean
-
-# python3-config https://github.com/astral-sh/uv/issues/10263
-RUN export PATH="$(dirname $(realpath .venv/bin/python)):$PATH"
 
 # Install build tools and dependencies
 RUN uv pip install -U build cmake ninja pybind11 setuptools==79.0.1 wheel
