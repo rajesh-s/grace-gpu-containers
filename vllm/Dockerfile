@@ -88,7 +88,7 @@ RUN cd xformers && \
 
 FROM build-base AS build-flashinfer
 ARG FLASHINFER_ENABLE_AOT=1
-ARG FLASHINFER_REF=v0.4.0
+ARG FLASHINFER_REF=v0.4.1
 ARG FLASHINFER_BUILD_SUFFIX=cu130
 ENV FLASHINFER_LOCAL_VERSION=${FLASHINFER_BUILD_SUFFIX:-}
 RUN git clone https://github.com/flashinfer-ai/flashinfer.git
@@ -109,24 +109,24 @@ RUN git clone https://github.com/LMCache/LMCache.git -b ${LMCACHE_REF} && \
     cp dist/*.whl /wheels/
 
 
-# FROM build-base AS build-flash-attention
-# RUN apt-get update && apt-get install -y build-essential cmake gcc && \
-#     git clone --depth=1 https://github.com/Dao-AILab/flash-attention flash-attention && \
-#     cd flash-attention/hopper && \
-#     mkdir wheels && \
-#     export MAX_JOBS=8 && \
-#     export NVCC_THREADS=1 && \
-#     export CMAKE_BUILD_PARALLEL_LEVEL=$MAX_JOBS && \
-#     MAX_JOBS=$MAX_JOBS \
-#     CMAKE_BUILD_PARALLEL_LEVEL=$MAX_JOBS \
-#     FLASH_ATTENTION_FORCE_BUILD="TRUE" \
-#     FLASH_ATTENTION_FORCE_CXX11_ABI="FALSE" \
-#     FLASH_ATTENTION_SKIP_CUDA_BUILD="FALSE" \
-#     pip3 wheel . -v --no-deps -w ./wheels/ && \
-#     cp wheels/*.whl /wheels/
+FROM build-base AS build-flash-attention
+RUN apt-get update && apt-get install -y build-essential cmake gcc && \
+    git clone https://github.com/Dao-AILab/flash-attention flash-attention && \
+    cd flash-attention/hopper && \
+    mkdir wheels && \
+    export MAX_JOBS=8 && \
+    export NVCC_THREADS=1 && \
+    export CMAKE_BUILD_PARALLEL_LEVEL=$MAX_JOBS && \
+    MAX_JOBS=$MAX_JOBS \
+    CMAKE_BUILD_PARALLEL_LEVEL=$MAX_JOBS \
+    FLASH_ATTENTION_FORCE_BUILD="TRUE" \
+    FLASH_ATTENTION_FORCE_CXX11_ABI="FALSE" \
+    FLASH_ATTENTION_SKIP_CUDA_BUILD="FALSE" \
+    pip3 wheel . -v --no-deps -w ./wheels/ && \
+    cp wheels/*.whl /wheels/
 
 FROM build-base AS build-vllm
-ARG VLLM_REF=v0.11.1rc1
+ARG VLLM_REF=v0.11.1rc2
 # Install ccache for faster compilation
 RUN apt-get update && apt-get install -y ccache
 RUN git clone https://github.com/vllm-project/vllm.git
@@ -163,6 +163,7 @@ RUN git clone https://github.com/bytedance/InfiniStore && \
     cp dist/*.whl /wheels/
 
 FROM base AS vllm-openai
+COPY --from=build-flash-attention /wheels/* wheels/
 COPY --from=build-flashinfer /wheels/* wheels/
 COPY --from=build-triton /wheels/* wheels/
 COPY --from=build-vllm /wheels/* wheels/
