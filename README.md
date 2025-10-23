@@ -12,7 +12,7 @@ If you prefer not to build the image yourself, you can pull the ready-to-use ima
 docker run --rm -it --gpus all -v "$PWD":"$PWD" -w "$PWD" rajesh550/gh200-vllm:0.11.0 bash
 
 # CUDA 13
-docker run --rm -it --gpus all -v "$PWD":"$PWD" -w "$PWD" rajesh550/gh200-vllm:0.11.1rc1 bash
+docker run --rm -it --gpus all -v "$PWD":"$PWD" -w "$PWD" rajesh550/gh200-vllm:0.11.1rc2 bash
 ```
 
 👉 [Docker Hub](https://hub.docker.com/repository/docker/rajesh550/gh200-vllm/general)
@@ -26,7 +26,8 @@ Python: 3.12
 PyTorch: 2.9.0+cu130
 Triton: 3.5.x
 xformers: 0.32.post2+
-flashinfer: 0.4.0
+flashinfer: 0.4.1
+flashattention: 3.0.0b1
 LMCache: 0.3.7
-vLLM: 0.11.1rc1
+vLLM: 0.11.1rc3
 ```
